@@ -91,7 +91,7 @@ WEATHER APP/
 │   ├── thunder.wav
 │   └── wind.wav
 ├── app.py                  # Original Streamlit app
-└── README_WEB.md          # This file
+└── README.md              # This file
 ```
 
 ## Usage
