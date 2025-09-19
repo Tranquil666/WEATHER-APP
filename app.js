@@ -1232,7 +1232,7 @@ class WeatherApp {
                 <div class="error-icon" style="font-size: 3rem; margin-bottom: 1rem;">🤖💔</div>
                 <h4>AI Analysis Unavailable</h4>
                 <p>${message}</p>
-                <button class="btn btn-outline-light mt-3" onclick="this.loadAIInsights()">
+                <button class="btn btn-outline-light mt-3" onclick="window.weatherApp.loadAIInsights()">
                     Try Again
                 </button>
             </div>
@@ -1242,5 +1242,5 @@ class WeatherApp {
 
 // Initialize the app when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-    new WeatherApp();
+    window.weatherApp = new WeatherApp();
 });
