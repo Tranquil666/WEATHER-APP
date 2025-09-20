@@ -1,7 +1,10 @@
 // Weather App JavaScript - Enhanced Version
 class WeatherApp {
     constructor() {
-        this.API_BASE = 'http://localhost:5000/api';
+        // Dynamically set API base URL for both development and production
+        this.API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+            ? 'http://localhost:5000/api' 
+            : `${window.location.protocol}//${window.location.host}/api`;
         this.currentLocationKey = null;
         this.currentWeatherData = null;
         this.forecastData = null;
@@ -22,6 +25,33 @@ class WeatherApp {
         this.bindEvents();
         this.displayFavorites();
         this.detectUserLocation();
+    }
+
+    // Retry mechanism for failed API calls
+    async fetchWithRetry(url, options = {}, maxRetries = 3) {
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                const response = await fetch(url, {
+                    ...options,
+                    timeout: 10000 // 10 second timeout
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                return response;
+            } catch (error) {
+                console.log(`Attempt ${attempt} failed:`, error.message);
+                
+                if (attempt === maxRetries) {
+                    throw new Error(`Network request failed after ${maxRetries} attempts: ${error.message}`);
+                }
+                
+                // Wait before retrying (exponential backoff)
+                await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
+            }
+        }
     }
 
     bindEvents() {
@@ -96,10 +126,29 @@ class WeatherApp {
         document.getElementById('loadingSpinner').classList.add('d-none');
     }
 
-    showError(message) {
+    showError(message, showRetryButton = false, retryAction = null) {
         this.hideLoading();
         const errorEl = document.getElementById('errorMessage');
-        errorEl.textContent = message;
+        
+        let errorHTML = `
+            <div class="d-flex align-items-center justify-content-between">
+                <div>
+                    <strong>⚠️ Network Error</strong><br>
+                    ${message}
+                </div>
+        `;
+        
+        if (showRetryButton && retryAction) {
+            errorHTML += `
+                <button class="btn btn-outline-light btn-sm ms-3" onclick="(${retryAction.toString()})()">
+                    🔄 Try Again
+                </button>
+            `;
+        }
+        
+        errorHTML += '</div>';
+        
+        errorEl.innerHTML = errorHTML;
         errorEl.classList.remove('d-none');
         document.getElementById('weatherContent').classList.add('d-none');
         document.getElementById('welcomeScreen').classList.add('d-none');
@@ -117,9 +166,7 @@ class WeatherApp {
             // Add a small delay to prevent immediate API calls
             await new Promise(resolve => setTimeout(resolve, 1000));
             
-            const response = await fetch(`${this.API_BASE}/location/auto`, {
-                timeout: 5000 // 5 second timeout
-            });
+            const response = await this.fetchWithRetry(`${this.API_BASE}/location/auto`);
             const result = await response.json();
             
             if (result.success && result.data.city) {
@@ -147,7 +194,7 @@ class WeatherApp {
         this.showLoading();
         
         try {
-            const response = await fetch(`${this.API_BASE}/location/auto`);
+            const response = await this.fetchWithRetry(`${this.API_BASE}/location/auto`);
             const result = await response.json();
             
             if (result.success && result.data.city) {
@@ -156,7 +203,11 @@ class WeatherApp {
                 this.showError('Could not detect your location. Please search manually.');
             }
         } catch (error) {
-            this.showError('Error detecting location: ' + error.message);
+            this.showError(
+                'Please check your internet connection and try again.',
+                true,
+                () => this.getUserLocation()
+            );
         }
     }
 
@@ -164,12 +215,12 @@ class WeatherApp {
         this.showLoading();
         
         try {
-            const locationResponse = await fetch(`${this.API_BASE}/location/${encodeURIComponent(city)}`);
+            const locationResponse = await this.fetchWithRetry(`${this.API_BASE}/location/${encodeURIComponent(city)}`);
             const locationResult = await locationResponse.json();
             
             if (!locationResult.success) {
                 if (autoLocationData && autoLocationData.lat && autoLocationData.lon) {
-                    const coordResponse = await fetch(`${this.API_BASE}/location/coordinates/${autoLocationData.lat}/${autoLocationData.lon}`);
+                    const coordResponse = await this.fetchWithRetry(`${this.API_BASE}/location/coordinates/${autoLocationData.lat}/${autoLocationData.lon}`);
                     const coordResult = await coordResponse.json();
                     if (coordResult.success) {
                         this.currentLocationKey = coordResult.locationKey;
@@ -185,16 +236,20 @@ class WeatherApp {
             await this.loadWeatherData(locationResult.cityName, locationResult.country, autoLocationData);
             
         } catch (error) {
-            this.showError('Error searching weather: ' + error.message);
+            this.showError(
+                'Please check your internet connection and try again.',
+                true,
+                () => this.searchWeather(city, autoLocationData)
+            );
         }
     }
 
     async loadWeatherData(cityName, country, autoLocationData = null) {
         try {
             const [currentResponse, forecastResponse, hourlyResponse] = await Promise.all([
-                fetch(`${this.API_BASE}/weather/current/${this.currentLocationKey}`),
-                fetch(`${this.API_BASE}/weather/forecast/${this.currentLocationKey}`),
-                fetch(`${this.API_BASE}/weather/hourly/${this.currentLocationKey}`)
+                this.fetchWithRetry(`${this.API_BASE}/weather/current/${this.currentLocationKey}`),
+                this.fetchWithRetry(`${this.API_BASE}/weather/forecast/${this.currentLocationKey}`),
+                this.fetchWithRetry(`${this.API_BASE}/weather/hourly/${this.currentLocationKey}`)
             ]);
 
             const [currentResult, forecastResult, hourlyResult] = await Promise.all([
@@ -222,7 +277,11 @@ class WeatherApp {
             this.showWeatherContent();
 
         } catch (error) {
-            this.showError('Error loading weather data: ' + error.message);
+            this.showError(
+                'Please check your internet connection and try again.',
+                true,
+                () => this.loadWeatherData(cityName, country, autoLocationData)
+            );
         }
     }
 
