@@ -1242,5 +1242,5 @@ class WeatherApp {
 
 // Initialize the app when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-    window.weatherApp = new WeatherApp();
+    new WeatherApp();
 });

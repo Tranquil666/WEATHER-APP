@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 import requests
 from datetime import datetime
@@ -248,6 +248,16 @@ def get_weather_sound(condition):
         return "sounds/wind.wav"
     else:
         return None
+
+@app.route('/')
+def serve_index():
+    """Serve the main HTML file"""
+    return send_from_directory('.', 'index.html')
+
+@app.route('/<path:filename>')
+def serve_static(filename):
+    """Serve static files"""
+    return send_from_directory('.', filename)
 
 @app.route('/api/location/<city>')
 def get_location_key(city):
