@@ -1993,18 +1993,34 @@ body.light-mode .favorite-cities-title {
     margin-bottom: 1.5rem;
 }
 
+.error-suggestions {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    padding: 1rem;
+    margin: 1rem 0;
+    text-align: left;
+}
+
+.error-suggestions div {
+    margin: 0.5rem 0;
+    color: rgba(255, 255, 255, 0.9);
+}
+
 .retry-btn {
     background: rgba(255, 255, 255, 0.2);
     border: 1px solid rgba(255, 255, 255, 0.3);
     border-radius: 10px;
-    padding: 10px 20px;
     color: white;
+    padding: 0.75rem 1.5rem;
+    font-size: 1rem;
+    cursor: pointer;
     transition: all 0.3s ease;
 }
 
 .retry-btn:hover {
     background: rgba(255, 255, 255, 0.3);
     transform: translateY(-2px);
+    box-shadow: 0 4px 15px rgba(0,0,0,0.2);
 }
 
 /* GPS Loading Animation */

@@ -114,14 +114,22 @@ class WeatherApp {
 
     async detectUserLocation() {
         try {
-            const response = await fetch(`${this.API_BASE}/location/auto`);
+            // Add a small delay to prevent immediate API calls
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            const response = await fetch(`${this.API_BASE}/location/auto`, {
+                timeout: 5000 // 5 second timeout
+            });
             const result = await response.json();
             
             if (result.success && result.data.city) {
                 this.displayDetectedLocation(result.data);
+            } else {
+                console.log('Location detection returned no data');
             }
         } catch (error) {
             console.log('Auto-location detection failed:', error);
+            // Don't show error here, just log it
         }
     }
 
@@ -867,9 +875,9 @@ class WeatherApp {
         }
 
         const options = {
-            enableHighAccuracy: true,
-            timeout: 10000,
-            maximumAge: 300000 // 5 minutes
+            enableHighAccuracy: false, // Changed to false for better compatibility
+            timeout: 15000, // Increased timeout
+            maximumAge: 600000 // 10 minutes
         };
 
         try {
@@ -907,11 +915,42 @@ class WeatherApp {
             if (result.success && result.data.city) {
                 await this.searchWeather(result.data.city, result.data);
             } else {
-                this.showEnhancedError('Could not detect your location', 'Please search manually or check your location permissions.');
+                this.showLocationError();
             }
         } catch (error) {
-            this.showEnhancedError('Location Error', 'Unable to detect location. Please search manually.');
+            console.log('IP location failed:', error);
+            this.showLocationError();
         }
+    }
+
+    showLocationError() {
+        this.hideLoading();
+        const errorEl = document.getElementById('errorMessage');
+        errorEl.innerHTML = `
+            <div class="error-container">
+                <div class="error-icon">⚠️</div>
+                <div class="error-title">Location Error</div>
+                <div class="error-message">Unable to detect location. Please search manually.</div>
+                <div class="error-suggestions mt-3">
+                    <div class="mb-2"><strong>Try these options:</strong></div>
+                    <div>• Search for your city in the search box above</div>
+                    <div>• Click on one of the popular cities</div>
+                    <div>• Enable location permissions and try again</div>
+                </div>
+                <button class="retry-btn mt-3" onclick="document.getElementById('cityInput').focus()">
+                    <i class="bi bi-search"></i> Search Manually
+                </button>
+            </div>
+        `;
+        
+        errorEl.classList.remove('d-none');
+        document.getElementById('weatherContent').classList.add('d-none');
+        document.getElementById('welcomeScreen').classList.add('d-none');
+        
+        // Focus on search input after a short delay
+        setTimeout(() => {
+            document.getElementById('cityInput').focus();
+        }, 500);
     }
 
     showLoadingWithGPS() {

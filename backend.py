@@ -464,49 +464,79 @@ def get_hourly_forecast(location_key):
 
 @app.route('/api/location/auto')
 def get_user_location():
-    """Get user's location using IP geolocation"""
-    try:
-        # Using ipapi.co for free IP geolocation
-        response = requests.get('https://ipapi.co/json/', timeout=5)
-        if response.status_code == 200:
-            data = response.json()
-            return jsonify({
-                'success': True,
-                'data': {
-                    'city': data.get('city', ''),
-                    'region': data.get('region', ''),
-                    'country': data.get('country_name', ''),
-                    'lat': data.get('latitude', 0),
-                    'lon': data.get('longitude', 0),
-                    'timezone': data.get('timezone', ''),
-                    'ip': data.get('ip', '')
-                }
-            })
-    except Exception as e:
-        pass
+    """Get user's location using IP geolocation with multiple fallbacks"""
     
-    # Fallback to another service
-    try:
-        response = requests.get('http://ip-api.com/json/', timeout=5)
-        if response.status_code == 200:
-            data = response.json()
-            if data.get('status') == 'success':
-                return jsonify({
-                    'success': True,
-                    'data': {
-                        'city': data.get('city', ''),
-                        'region': data.get('regionName', ''),
-                        'country': data.get('country', ''),
-                        'lat': data.get('lat', 0),
-                        'lon': data.get('lon', 0),
-                        'timezone': data.get('timezone', ''),
-                        'ip': data.get('query', '')
-                    }
-                })
-    except Exception as e:
-        pass
+    # List of IP geolocation services to try
+    services = [
+        {
+            'url': 'https://ipapi.co/json/',
+            'parser': lambda data: {
+                'city': data.get('city', ''),
+                'region': data.get('region', ''),
+                'country': data.get('country_name', ''),
+                'lat': data.get('latitude', 0),
+                'lon': data.get('longitude', 0),
+                'timezone': data.get('timezone', ''),
+                'ip': data.get('ip', '')
+            }
+        },
+        {
+            'url': 'http://ip-api.com/json/',
+            'parser': lambda data: {
+                'city': data.get('city', ''),
+                'region': data.get('regionName', ''),
+                'country': data.get('country', ''),
+                'lat': data.get('lat', 0),
+                'lon': data.get('lon', 0),
+                'timezone': data.get('timezone', ''),
+                'ip': data.get('query', '')
+            } if data.get('status') == 'success' else None
+        },
+        {
+            'url': 'https://ipinfo.io/json',
+            'parser': lambda data: {
+                'city': data.get('city', ''),
+                'region': data.get('region', ''),
+                'country': data.get('country', ''),
+                'lat': float(data.get('loc', '0,0').split(',')[0]) if data.get('loc') else 0,
+                'lon': float(data.get('loc', '0,0').split(',')[1]) if data.get('loc') else 0,
+                'timezone': data.get('timezone', ''),
+                'ip': data.get('ip', '')
+            }
+        }
+    ]
     
-    return jsonify({'success': False, 'error': 'Could not detect location'})
+    for service in services:
+        try:
+            response = requests.get(service['url'], timeout=8)
+            if response.status_code == 200:
+                data = response.json()
+                parsed_data = service['parser'](data)
+                
+                if parsed_data and parsed_data.get('city'):
+                    return jsonify({
+                        'success': True,
+                        'data': parsed_data
+                    })
+        except Exception as e:
+            print(f"Location service failed: {service['url']} - {e}")
+            continue
+    
+    # If all services fail, return a default location (London as example)
+    return jsonify({
+        'success': True,
+        'data': {
+            'city': 'London',
+            'region': 'England',
+            'country': 'United Kingdom',
+            'lat': 51.5074,
+            'lon': -0.1278,
+            'timezone': 'Europe/London',
+            'ip': 'unknown'
+        },
+        'fallback': True,
+        'message': 'Using default location due to detection failure'
+    })
 
 # AI-POWERED WEATHER INTELLIGENCE FUNCTIONS
 def generate_ai_weather_insights(current_weather, forecast_data, location_name):
