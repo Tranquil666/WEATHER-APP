@@ -1366,25 +1366,26 @@ class WeatherApp {
     setupTouchInteractions() {
         if (!this.isTouch) return;
 
-        // Add touch feedback to interactive elements
+        // Add very subtle touch feedback to interactive elements
         const interactiveElements = document.querySelectorAll('.btn, .city-btn, .metric-item, .forecast-card');
         
         interactiveElements.forEach(element => {
             element.addEventListener('touchstart', (e) => {
-                element.style.transform = 'scale(0.95)';
-                element.style.opacity = '0.8';
+                // Very subtle feedback - no scaling to prevent shaking
+                element.style.opacity = '0.9';
+                element.style.transition = 'opacity 0.1s ease';
             }, { passive: true });
 
             element.addEventListener('touchend', (e) => {
                 setTimeout(() => {
-                    element.style.transform = '';
                     element.style.opacity = '';
-                }, 150);
+                    element.style.transition = '';
+                }, 100);
             }, { passive: true });
 
             element.addEventListener('touchcancel', (e) => {
-                element.style.transform = '';
                 element.style.opacity = '';
+                element.style.transition = '';
             }, { passive: true });
         });
 
@@ -1412,29 +1413,50 @@ class WeatherApp {
     optimizeForMobile() {
         if (!this.isMobile) return;
 
-        // Reduce animations on mobile for better performance
+        // Completely disable problematic animations on mobile
         const style = document.createElement('style');
         style.textContent = `
             @media (max-width: 768px) {
+                /* Disable all animations that cause shaking */
                 * {
-                    animation-duration: 0.3s !important;
-                    transition-duration: 0.2s !important;
+                    animation-duration: 0s !important;
+                    transition-duration: 0.15s !important;
                 }
                 
-                .weather-main::before,
-                .main-container::before,
-                .search-container::before {
+                /* Specifically target floating animations */
+                .weather-main,
+                .main-container,
+                .search-container,
+                .metric-item,
+                .forecast-card,
+                .weather-icon-main,
+                .temp-display {
                     animation: none !important;
+                    transform: none !important;
+                }
+                
+                /* Remove all pseudo-element animations */
+                *::before,
+                *::after {
+                    animation: none !important;
+                }
+                
+                /* Only allow very subtle transitions for touch feedback */
+                .btn:active,
+                .city-btn:active,
+                .metric-item:active,
+                .forecast-card:active {
+                    transition: transform 0.1s ease, opacity 0.1s ease !important;
                 }
             }
         `;
         document.head.appendChild(style);
 
-        // Optimize chart rendering for mobile
+        // Optimize chart rendering for mobile with minimal animations
         if (window.Chart) {
             Chart.defaults.responsive = true;
             Chart.defaults.maintainAspectRatio = false;
-            Chart.defaults.animation.duration = 300;
+            Chart.defaults.animation.duration = 0; // No chart animations on mobile
         }
     }
 

@@ -2700,14 +2700,53 @@ body.light-mode .ai-tip-item {
     }
 }
 
-/* Mobile Performance Optimizations */
+/* Mobile Performance Optimizations - Reduce Shaking */
 @media (max-width: 768px) {
-    /* Reduce animations on mobile for better performance */
+    /* Disable all floating and shaking animations on mobile */
+    .weather-main,
+    .main-container,
+    .search-container,
+    .metric-item,
+    .forecast-card,
+    .weather-icon-main,
+    .temp-display {
+        animation: none !important;
+    }
+    
+    /* Remove all ::before pseudo-element animations */
     .weather-main::before,
     .main-container::before,
+    .search-container::before,
     .metric-item::before,
-    .forecast-card::before {
-        animation: none;
+    .forecast-card::before,
+    .ai-story-card::before,
+    .ai-insight-card::before {
+        animation: none !important;
+        display: none;
+    }
+    
+    /* Disable background animations */
+    .bg-sunny::before,
+    .bg-rainy::before,
+    .bg-cloudy::before,
+    .bg-snowy::before,
+    .bg-stormy::before,
+    .bg-foggy::before {
+        animation: none !important;
+        display: none;
+    }
+    
+    /* Remove floating effects */
+    .weather-main {
+        transform: none !important;
+    }
+    
+    .main-container {
+        transform: none !important;
+    }
+    
+    .search-container {
+        transform: none !important;
     }
     
     /* Simplify hover effects on touch devices */
@@ -2717,19 +2756,55 @@ body.light-mode .ai-tip-item {
         .city-btn:hover,
         .search-btn:hover,
         .location-btn:hover {
-            transform: none;
+            transform: none !important;
             box-shadow: inherit;
+            animation: none !important;
         }
         
-        /* Add active states for touch */
+        /* Add subtle active states for touch feedback */
         .metric-item:active,
         .forecast-card:active,
         .city-btn:active,
         .search-btn:active,
         .location-btn:active {
             transform: scale(0.98);
-            opacity: 0.8;
+            opacity: 0.9;
+            transition: all 0.1s ease;
         }
+    }
+    
+    /* Remove icon animations */
+    .weather-icon-main {
+        animation: none !important;
+        transform: none !important;
+    }
+    
+    .forecast-icon {
+        animation: none !important;
+        transform: none !important;
+    }
+    
+    /* Remove temperature pulsing */
+    .temp-display {
+        animation: none !important;
+        transform: none !important;
+    }
+    
+    /* Remove metric value glowing */
+    .metric-value {
+        animation: none !important;
+        text-shadow: 0 2px 10px rgba(0,0,0,0.3);
+    }
+    
+    /* Static backgrounds for mobile */
+    .bg-sunny,
+    .bg-rainy,
+    .bg-cloudy,
+    .bg-snowy,
+    .bg-stormy,
+    .bg-foggy {
+        background-size: 100% 100% !important;
+        animation: none !important;
     }
 }
 
