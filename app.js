@@ -25,6 +25,7 @@ class WeatherApp {
         this.bindEvents();
         this.displayFavorites();
         this.detectUserLocation();
+        this.initializeMobileOptimizations();
     }
 
     // Retry mechanism for failed API calls
@@ -1335,6 +1336,352 @@ class WeatherApp {
                 </button>
             </div>
         `;
+    }
+
+    // MOBILE OPTIMIZATIONS
+    initializeMobileOptimizations() {
+        this.detectMobileDevice();
+        this.setupTouchInteractions();
+        this.optimizeForMobile();
+        this.handleOrientationChange();
+        this.preventZoomOnInputFocus();
+    }
+
+    detectMobileDevice() {
+        this.isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        this.isTablet = /iPad|Android(?=.*Tablet)|(?=.*\bAndroid\b)(?=.*\b(?:7|10)\.\d+)/i.test(navigator.userAgent);
+        this.isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+        
+        if (this.isMobile) {
+            document.body.classList.add('mobile-device');
+        }
+        if (this.isTablet) {
+            document.body.classList.add('tablet-device');
+        }
+        if (this.isTouch) {
+            document.body.classList.add('touch-device');
+        }
+    }
+
+    setupTouchInteractions() {
+        if (!this.isTouch) return;
+
+        // Add touch feedback to interactive elements
+        const interactiveElements = document.querySelectorAll('.btn, .city-btn, .metric-item, .forecast-card');
+        
+        interactiveElements.forEach(element => {
+            element.addEventListener('touchstart', (e) => {
+                element.style.transform = 'scale(0.95)';
+                element.style.opacity = '0.8';
+            }, { passive: true });
+
+            element.addEventListener('touchend', (e) => {
+                setTimeout(() => {
+                    element.style.transform = '';
+                    element.style.opacity = '';
+                }, 150);
+            }, { passive: true });
+
+            element.addEventListener('touchcancel', (e) => {
+                element.style.transform = '';
+                element.style.opacity = '';
+            }, { passive: true });
+        });
+
+        // Improve tab scrolling on mobile
+        const tabsContainer = document.querySelector('.weather-tabs');
+        if (tabsContainer) {
+            let isScrolling = false;
+            
+            tabsContainer.addEventListener('touchstart', () => {
+                isScrolling = false;
+            }, { passive: true });
+
+            tabsContainer.addEventListener('touchmove', () => {
+                isScrolling = true;
+            }, { passive: true });
+
+            tabsContainer.addEventListener('touchend', (e) => {
+                if (isScrolling) {
+                    e.preventDefault();
+                }
+            });
+        }
+    }
+
+    optimizeForMobile() {
+        if (!this.isMobile) return;
+
+        // Reduce animations on mobile for better performance
+        const style = document.createElement('style');
+        style.textContent = `
+            @media (max-width: 768px) {
+                * {
+                    animation-duration: 0.3s !important;
+                    transition-duration: 0.2s !important;
+                }
+                
+                .weather-main::before,
+                .main-container::before,
+                .search-container::before {
+                    animation: none !important;
+                }
+            }
+        `;
+        document.head.appendChild(style);
+
+        // Optimize chart rendering for mobile
+        if (window.Chart) {
+            Chart.defaults.responsive = true;
+            Chart.defaults.maintainAspectRatio = false;
+            Chart.defaults.animation.duration = 300;
+        }
+    }
+
+    handleOrientationChange() {
+        window.addEventListener('orientationchange', () => {
+            setTimeout(() => {
+                // Refresh charts if they exist
+                if (this.temperatureChart) {
+                    this.temperatureChart.resize();
+                }
+                if (this.hourlyChart) {
+                    this.hourlyChart.resize();
+                }
+
+                // Scroll to top on orientation change
+                window.scrollTo(0, 0);
+                
+                // Re-adjust layout
+                this.adjustMobileLayout();
+            }, 100);
+        });
+    }
+
+    adjustMobileLayout() {
+        const isLandscape = window.innerHeight < window.innerWidth;
+        
+        if (this.isMobile && isLandscape) {
+            document.body.classList.add('mobile-landscape');
+            
+            // Reduce padding in landscape mode
+            const mainContainer = document.querySelector('.main-container');
+            if (mainContainer) {
+                mainContainer.style.padding = '1rem';
+            }
+        } else {
+            document.body.classList.remove('mobile-landscape');
+            
+            // Restore normal padding
+            const mainContainer = document.querySelector('.main-container');
+            if (mainContainer) {
+                mainContainer.style.padding = '';
+            }
+        }
+    }
+
+    preventZoomOnInputFocus() {
+        // Prevent zoom on input focus for iOS Safari
+        if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
+            const inputs = document.querySelectorAll('input[type="text"], input[type="search"]');
+            inputs.forEach(input => {
+                input.addEventListener('focus', () => {
+                    input.style.fontSize = '16px';
+                });
+                
+                input.addEventListener('blur', () => {
+                    input.style.fontSize = '';
+                });
+            });
+        }
+    }
+
+    // Enhanced error handling for mobile
+    showError(message, showRetryButton = false, retryAction = null) {
+        this.hideLoading();
+        const errorEl = document.getElementById('errorMessage');
+        
+        let errorHTML = `
+            <div class="d-flex align-items-center justify-content-between flex-column flex-md-row">
+                <div class="text-center text-md-start mb-3 mb-md-0">
+                    <strong>⚠️ ${this.isMobile ? 'Connection Issue' : 'Network Error'}</strong><br>
+                    ${this.isMobile ? this.getMobileFriendlyErrorMessage(message) : message}
+                </div>
+        `;
+        
+        if (showRetryButton && retryAction) {
+            errorHTML += `
+                <button class="btn btn-outline-light btn-sm ${this.isMobile ? 'w-100' : 'ms-3'}" onclick="(${retryAction.toString()})()">
+                    🔄 ${this.isMobile ? 'Retry' : 'Try Again'}
+                </button>
+            `;
+        }
+        
+        errorHTML += '</div>';
+        
+        errorEl.innerHTML = errorHTML;
+        errorEl.classList.remove('d-none');
+        document.getElementById('weatherContent').classList.add('d-none');
+        document.getElementById('welcomeScreen').classList.add('d-none');
+    }
+
+    getMobileFriendlyErrorMessage(message) {
+        if (message.includes('network') || message.includes('connection')) {
+            return 'Check your internet connection and try again.';
+        }
+        if (message.includes('location')) {
+            return 'Unable to detect location. Try searching manually.';
+        }
+        if (message.includes('City not found')) {
+            return 'City not found. Check spelling or try a different city.';
+        }
+        return message.length > 60 ? message.substring(0, 60) + '...' : message;
+    }
+
+    // Override chart rendering for mobile optimization
+    renderCharts() {
+        if (!this.forecastData || !this.hourlyData) return;
+        
+        // Use smaller charts on mobile
+        const isMobileView = window.innerWidth <= 768;
+        
+        if (isMobileView) {
+            this.renderMobileOptimizedCharts();
+        } else {
+            this.renderTemperatureChart();
+            this.renderHourlyChart();
+        }
+    }
+
+    renderMobileOptimizedCharts() {
+        // Simplified charts for mobile with less data points
+        const ctx1 = document.getElementById('temperatureChart').getContext('2d');
+        const ctx2 = document.getElementById('hourlyChart').getContext('2d');
+        
+        if (this.temperatureChart) this.temperatureChart.destroy();
+        if (this.hourlyChart) this.hourlyChart.destroy();
+
+        // Temperature chart with fewer data points
+        const dates = [];
+        const maxTemps = [];
+        const minTemps = [];
+
+        this.forecastData.DailyForecasts.slice(0, 3).forEach((day, index) => {
+            const date = new Date(day.Date);
+            dates.push(index === 0 ? 'Today' : date.toLocaleDateString('en', { weekday: 'short' }));
+            minTemps.push(day.Temperature.Minimum.Value);
+            maxTemps.push(day.Temperature.Maximum.Value);
+        });
+
+        this.temperatureChart = new Chart(ctx1, {
+            type: 'line',
+            data: {
+                labels: dates,
+                datasets: [{
+                    label: 'High',
+                    data: maxTemps,
+                    borderColor: '#FF6B6B',
+                    backgroundColor: 'rgba(255, 107, 107, 0.1)',
+                    tension: 0.4,
+                    pointRadius: 6,
+                    pointHoverRadius: 8
+                }, {
+                    label: 'Low',
+                    data: minTemps,
+                    borderColor: '#4ECDC4',
+                    backgroundColor: 'rgba(78, 205, 196, 0.1)',
+                    tension: 0.4,
+                    pointRadius: 6,
+                    pointHoverRadius: 8
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        labels: { 
+                            color: 'white',
+                            font: { size: 12 }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        ticks: { 
+                            color: 'white',
+                            font: { size: 11 }
+                        },
+                        grid: { color: 'rgba(255,255,255,0.1)' }
+                    },
+                    y: {
+                        ticks: { 
+                            color: 'white',
+                            font: { size: 11 }
+                        },
+                        grid: { color: 'rgba(255,255,255,0.1)' }
+                    }
+                },
+                interaction: {
+                    intersect: false,
+                    mode: 'index'
+                }
+            }
+        });
+
+        // Hourly chart with fewer data points
+        const times = [];
+        const temps = [];
+
+        this.hourlyData.slice(0, 6).forEach(hour => {
+            const time = new Date(hour.DateTime);
+            times.push(time.toLocaleTimeString([], {hour: 'numeric'}));
+            temps.push(hour.Temperature.Value);
+        });
+
+        this.hourlyChart = new Chart(ctx2, {
+            type: 'line',
+            data: {
+                labels: times,
+                datasets: [{
+                    label: 'Temperature',
+                    data: temps,
+                    borderColor: '#45B7D1',
+                    backgroundColor: 'rgba(69, 183, 209, 0.1)',
+                    tension: 0.4,
+                    pointRadius: 6,
+                    pointHoverRadius: 8,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    x: {
+                        ticks: { 
+                            color: 'white',
+                            font: { size: 11 }
+                        },
+                        grid: { color: 'rgba(255,255,255,0.1)' }
+                    },
+                    y: {
+                        ticks: { 
+                            color: 'white',
+                            font: { size: 11 }
+                        },
+                        grid: { color: 'rgba(255,255,255,0.1)' }
+                    }
+                },
+                interaction: {
+                    intersect: false,
+                    mode: 'index'
+                }
+            }
+        });
     }
 }
 
