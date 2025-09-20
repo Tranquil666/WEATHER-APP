@@ -1144,6 +1144,24 @@ body {
         font-size: 0.85rem;
         border-radius: 10px;
         min-height: 44px;
+        width: 100%;
+        text-align: center;
+    }
+    
+    /* Ensure popular cities maintain 2-column layout on mobile */
+    .popular-cities-section .row {
+        display: flex;
+        flex-wrap: wrap;
+        margin-right: -0.25rem;
+        margin-left: -0.25rem;
+    }
+    
+    .popular-cities-section .col-6 {
+        flex: 0 0 auto;
+        width: calc(50% - 0.5rem);
+        padding-right: 0.25rem;
+        padding-left: 0.25rem;
+        margin-bottom: 0.5rem;
     }
     
     .quick-start-card {
@@ -2531,9 +2549,19 @@ body.light-mode .ai-tip-item {
         min-width: 44px;
     }
     
-    /* Improve tap spacing */
+    /* Improve tap spacing while maintaining grid layout */
     .popular-cities-section .row {
-        gap: 0.5rem;
+        --bs-gutter-x: 0.5rem;
+        --bs-gutter-y: 0.5rem;
+    }
+    
+    /* Ensure popular cities show 2 per row on mobile */
+    .popular-cities-section .col-6 {
+        flex: 0 0 auto;
+        width: 50%;
+        padding-right: calc(var(--bs-gutter-x) * 0.5);
+        padding-left: calc(var(--bs-gutter-x) * 0.5);
+        margin-bottom: var(--bs-gutter-y);
     }
     
     /* Better scrolling for tabs */
@@ -2916,6 +2944,25 @@ body.light-mode .ai-tip-item {
         font-size: 0.8rem;
         padding: 0.5rem 0.6rem;
         min-width: 60px;
+    }
+    
+    /* Popular cities layout for ultra-small screens */
+    .popular-cities-section .row {
+        margin-right: -0.2rem;
+        margin-left: -0.2rem;
+    }
+    
+    .popular-cities-section .col-6 {
+        width: calc(50% - 0.4rem);
+        padding-right: 0.2rem;
+        padding-left: 0.2rem;
+        margin-bottom: 0.4rem;
+    }
+    
+    .city-btn {
+        padding: 8px 10px;
+        font-size: 0.8rem;
+        min-height: 42px;
     }
 }
 
