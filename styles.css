@@ -527,6 +527,14 @@ body {
     padding: 1.5rem;
     border: 1px solid rgba(255, 255, 255, 0.2);
     margin-bottom: 2rem;
+    min-height: 300px;
+    position: relative;
+}
+
+.chart-container canvas {
+    width: 100% !important;
+    height: 250px !important;
+    max-width: 100%;
 }
 
 /* Details Cards */
@@ -960,6 +968,13 @@ body {
         padding: 1rem;
         border-radius: 15px;
         margin-bottom: 1.5rem;
+        min-height: 280px;
+    }
+    
+    .chart-container canvas {
+        width: 100% !important;
+        height: 220px !important;
+        max-width: 100%;
     }
 }
 
@@ -1165,6 +1180,13 @@ body {
         padding: 0.8rem;
         border-radius: 12px;
         margin-bottom: 1rem;
+        min-height: 250px;
+    }
+    
+    .chart-container canvas {
+        width: 100% !important;
+        height: 200px !important;
+        max-width: 100%;
     }
     
     .details-card {
@@ -2529,7 +2551,7 @@ body.light-mode .ai-tip-item {
     /* Improve chart responsiveness */
     .chart-container canvas {
         max-width: 100% !important;
-        height: auto !important;
+        min-height: 200px !important;
     }
 }
 

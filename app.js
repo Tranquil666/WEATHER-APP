@@ -1457,6 +1457,16 @@ class WeatherApp {
             Chart.defaults.responsive = true;
             Chart.defaults.maintainAspectRatio = false;
             Chart.defaults.animation.duration = 0; // No chart animations on mobile
+            
+            // Ensure charts have proper dimensions on mobile
+            Chart.defaults.layout = {
+                padding: {
+                    left: 10,
+                    right: 10,
+                    top: 10,
+                    bottom: 10
+                }
+            };
         }
     }
 
@@ -1583,6 +1593,15 @@ class WeatherApp {
         if (this.temperatureChart) this.temperatureChart.destroy();
         if (this.hourlyChart) this.hourlyChart.destroy();
 
+        // Ensure canvas elements have proper dimensions
+        const canvas1 = document.getElementById('temperatureChart');
+        const canvas2 = document.getElementById('hourlyChart');
+        
+        canvas1.style.width = '100%';
+        canvas1.style.height = '200px';
+        canvas2.style.width = '100%';
+        canvas2.style.height = '200px';
+
         // Temperature chart with fewer data points
         const dates = [];
         const maxTemps = [];
@@ -1620,6 +1639,15 @@ class WeatherApp {
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                aspectRatio: 2,
+                layout: {
+                    padding: {
+                        left: 10,
+                        right: 10,
+                        top: 10,
+                        bottom: 10
+                    }
+                },
                 plugins: {
                     legend: {
                         labels: { 
@@ -1679,6 +1707,15 @@ class WeatherApp {
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                aspectRatio: 2,
+                layout: {
+                    padding: {
+                        left: 10,
+                        right: 10,
+                        top: 10,
+                        bottom: 10
+                    }
+                },
                 plugins: {
                     legend: { display: false }
                 },
