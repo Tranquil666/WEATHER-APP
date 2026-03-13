@@ -449,7 +449,7 @@ class WeatherApp {
                     if (parsed.city) return parsed;
                 }
             } catch (e) {
-                console.log(`IP geo service failed: ${service.url}`, e.message);
+                console.warn(`IP geo service failed: ${service.url}`, e.message);
             }
         }
         return null;
@@ -1363,7 +1363,7 @@ class WeatherApp {
                     country = addr.country || '';
                 }
             } catch (e) {
-                console.log('Reverse geocoding failed:', e);
+                console.error('Reverse geocoding failed:', e);
             }
 
             await this.loadWeatherData(cityName, country, {
