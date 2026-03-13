@@ -1,10 +1,9 @@
 // Weather App JavaScript - Enhanced Version
 class WeatherApp {
     constructor() {
-        // Dynamically set API base URL for both development and production
-        this.API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
-            ? 'http://localhost:5000/api' 
-            : `${window.location.protocol}//${window.location.host}/api`;
+        // Open-Meteo API endpoints (free, no API key required, CORS enabled)
+        this.GEOCODING_URL = 'https://geocoding-api.open-meteo.com/v1/search';
+        this.WEATHER_URL = 'https://api.open-meteo.com/v1/forecast';
         this.currentLocationKey = null;
         this.currentWeatherData = null;
         this.forecastData = null;
@@ -27,6 +26,247 @@ class WeatherApp {
         this.detectUserLocation();
         this.initializeMobileOptimizations();
     }
+
+    // ========== WEATHER DATA HELPER FUNCTIONS ==========
+    // Ported from backend.py to run client-side
+
+    wmoCodeToText(code) {
+        const wmoMap = {
+            0: "Clear sky", 1: "Mainly clear", 2: "Partly cloudy", 3: "Overcast",
+            45: "Foggy", 48: "Depositing rime fog",
+            51: "Light drizzle", 53: "Moderate drizzle", 55: "Dense drizzle",
+            56: "Light freezing drizzle", 57: "Dense freezing drizzle",
+            61: "Slight rain", 63: "Moderate rain", 65: "Heavy rain",
+            66: "Light freezing rain", 67: "Heavy freezing rain",
+            71: "Slight snowfall", 73: "Moderate snowfall", 75: "Heavy snowfall", 77: "Snow grains",
+            80: "Slight rain showers", 81: "Moderate rain showers", 82: "Violent rain showers",
+            85: "Slight snow showers", 86: "Heavy snow showers",
+            95: "Thunderstorm", 96: "Thunderstorm with slight hail", 99: "Thunderstorm with heavy hail"
+        };
+        return wmoMap[code] || "Clear sky";
+    }
+
+    windDegreeToDirection(degrees) {
+        const directions = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
+                           "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+        const idx = Math.round(degrees / 22.5) % 16;
+        return directions[idx];
+    }
+
+    getWeatherBackground(condition) {
+        const cl = condition.toLowerCase();
+        if (['sunny', 'clear', 'bright'].some(w => cl.includes(w))) return "bg-sunny";
+        if (['rain', 'shower', 'drizzle'].some(w => cl.includes(w))) return "bg-rainy";
+        if (['cloud', 'overcast'].some(w => cl.includes(w))) return "bg-cloudy";
+        if (['snow', 'blizzard'].some(w => cl.includes(w))) return "bg-snowy";
+        if (['storm', 'thunder'].some(w => cl.includes(w))) return "bg-stormy";
+        if (['fog', 'mist', 'haze'].some(w => cl.includes(w))) return "bg-foggy";
+        return "bg-sunny";
+    }
+
+    getWeatherIconEmoji(condition) {
+        const cl = condition.toLowerCase();
+        if (['sunny', 'clear', 'bright'].some(w => cl.includes(w))) return "\u2600\uFE0F";
+        if (['partly cloudy', 'partly sunny'].some(w => cl.includes(w))) return "\u26C5";
+        if (['cloudy', 'overcast'].some(w => cl.includes(w))) return "\u2601\uFE0F";
+        if (['rain', 'shower', 'drizzle'].some(w => cl.includes(w))) return "\uD83C\uDF27\uFE0F";
+        if (['storm', 'thunder'].some(w => cl.includes(w))) return "\u26C8\uFE0F";
+        if (['snow', 'blizzard'].some(w => cl.includes(w))) return "\u2744\uFE0F";
+        if (['fog', 'mist', 'haze'].some(w => cl.includes(w))) return "\uD83C\uDF2B\uFE0F";
+        if (cl.includes('wind')) return "\uD83D\uDCA8";
+        return "\uD83C\uDF24\uFE0F";
+    }
+
+    getWeatherSoundFile(condition) {
+        const cl = condition.toLowerCase();
+        if (['rain', 'shower', 'drizzle'].some(w => cl.includes(w))) return "sounds/rain.wav";
+        if (['storm', 'thunder'].some(w => cl.includes(w))) return "sounds/thunder.wav";
+        if (cl.includes('wind')) return "sounds/wind.wav";
+        return null;
+    }
+
+    getComfortLevel(temp, humidity, windSpeed) {
+        if (temp > 27 && humidity > 40) {
+            const heatIndex = temp + (humidity * 0.1);
+            if (heatIndex > 35) return { text: "\uD83D\uDD25 Very Hot", color: "#ff4444" };
+            if (heatIndex > 30) return { text: "\uD83C\uDF21\uFE0F Hot", color: "#ff8800" };
+        }
+        if (temp < 10 && windSpeed > 15) {
+            const windChill = temp - (windSpeed * 0.2);
+            if (windChill < 0) return { text: "\uD83E\uDDCA Very Cold", color: "#4488ff" };
+            if (windChill < 5) return { text: "\u2744\uFE0F Cold", color: "#66aaff" };
+        }
+        if (temp >= 18 && temp <= 24 && humidity >= 30 && humidity <= 60) return { text: "\uD83D\uDE0A Perfect", color: "#00dd44" };
+        if (temp >= 15 && temp <= 27 && humidity >= 25 && humidity <= 70) return { text: "\uD83D\uDC4D Comfortable", color: "#88dd00" };
+        if (temp > 30) return { text: "\uD83D\uDD25 Hot", color: "#ff6600" };
+        if (temp < 5) return { text: "\uD83E\uDDCA Cold", color: "#4488ff" };
+        return { text: "\uD83D\uDE10 Moderate", color: "#ffaa00" };
+    }
+
+    getActivityRecommendations(weatherData) {
+        const temp = weatherData?.Temperature?.Metric?.Value ?? 20;
+        const condition = (weatherData?.WeatherText || '').toLowerCase();
+        const uvIndex = weatherData?.UVIndex || 0;
+        const windSpeed = weatherData?.Wind?.Speed?.Metric?.Value || 0;
+        const activities = [];
+
+        if (['sunny', 'clear'].some(w => condition.includes(w)) && temp >= 20 && temp <= 28) {
+            activities.push("\uD83C\uDFC3\u200D\u2642\uFE0F Perfect for outdoor running",
+                "\uD83D\uDEB4\u200D\u2640\uFE0F Great cycling weather",
+                "\uD83C\uDFD6\uFE0F Beach day recommended",
+                "\uD83E\uDDFA Ideal for picnics");
+        } else if (['rain', 'shower'].some(w => condition.includes(w))) {
+            activities.push("\u2615 Perfect for indoor cafes",
+                "\uD83C\uDFAC Great movie weather",
+                "\uD83D\uDCDA Reading by the window",
+                "\uD83C\uDFE0 Cozy indoor activities");
+        } else if (temp > 30) {
+            activities.push("\uD83C\uDFCA\u200D\u2642\uFE0F Swimming recommended",
+                "\uD83C\uDF33 Seek shaded areas",
+                "\uD83D\uDCA7 Stay hydrated",
+                "\uD83C\uDFE0 Indoor activities preferred");
+        } else if (temp < 10) {
+            activities.push("\uD83E\uDDE5 Bundle up for walks",
+                "\u2615 Hot drinks recommended",
+                "\uD83C\uDFE0 Indoor workouts",
+                "\uD83D\uDD25 Cozy fireplace time");
+        }
+        if (uvIndex > 6) activities.push("\uD83E\uDDF4 Don't forget sunscreen");
+        if (windSpeed > 20) activities.push("\uD83E\uDE81 Great for kite flying");
+        return activities.slice(0, 4);
+    }
+
+    getLifestyleTips(weatherData) {
+        const tips = [];
+        const temp = weatherData?.Temperature?.Metric?.Value ?? 20;
+        const condition = (weatherData?.WeatherText || '').toLowerCase();
+        const humidity = weatherData?.RelativeHumidity ?? 50;
+        const uvIndex = weatherData?.UVIndex ?? 0;
+        const windSpeed = weatherData?.Wind?.Speed?.Metric?.Value ?? 0;
+
+        if (temp > 30) {
+            tips.push("\uD83C\uDF21\uFE0F Stay hydrated and wear light, breathable clothing");
+            tips.push("\uD83C\uDFE0 Avoid prolonged sun exposure during peak hours (10 AM - 4 PM)");
+        } else if (temp < 5) {
+            tips.push("\uD83E\uDDE5 Dress in layers and protect exposed skin");
+            tips.push("\u2744\uFE0F Be cautious of icy conditions when walking or driving");
+        } else if (temp < 15) {
+            tips.push("\uD83E\uDDE5 Consider wearing a jacket or sweater");
+        }
+        if (['rain', 'shower', 'drizzle'].some(w => condition.includes(w))) {
+            tips.push("\u2614 Carry an umbrella and wear waterproof clothing");
+            tips.push("\uD83D\uDE97 Drive carefully - roads may be slippery");
+        } else if (['snow', 'blizzard'].some(w => condition.includes(w))) {
+            tips.push("\u2744\uFE0F Wear warm, waterproof boots with good traction");
+            tips.push("\uD83D\uDE97 Allow extra time for travel and keep emergency supplies in car");
+        } else if (['fog', 'mist'].some(w => condition.includes(w))) {
+            tips.push("\uD83C\uDF2B\uFE0F Use headlights when driving and reduce speed");
+            tips.push("\uD83D\uDC40 Be extra cautious when walking or cycling");
+        }
+        if (uvIndex >= 8) {
+            tips.push("\u2600\uFE0F Use SPF 30+ sunscreen and wear protective clothing");
+            tips.push("\uD83D\uDD76\uFE0F Wear sunglasses and seek shade when possible");
+        } else if (uvIndex >= 6) {
+            tips.push("\u2600\uFE0F Apply sunscreen and consider wearing a hat");
+        }
+        if (humidity > 80) tips.push("\uD83D\uDCA7 High humidity - stay cool and drink plenty of water");
+        else if (humidity < 30) tips.push("\uD83C\uDFDC\uFE0F Low humidity - use moisturizer and stay hydrated");
+        if (windSpeed > 25) tips.push("\uD83D\uDCA8 Strong winds - secure loose objects and be cautious outdoors");
+        return tips.slice(0, 6);
+    }
+
+    getAqiInfo(aqi) {
+        if (aqi == null) return { category: "N/A", color: "#999", description: "No data available" };
+        if (aqi <= 50) return { category: "Good", color: "#00e400", description: "Air quality is satisfactory" };
+        if (aqi <= 100) return { category: "Moderate", color: "#ffff00", description: "Air quality is acceptable" };
+        if (aqi <= 150) return { category: "Unhealthy for Sensitive Groups", color: "#ff7e00", description: "Sensitive people should limit outdoor activities" };
+        if (aqi <= 200) return { category: "Unhealthy", color: "#ff0000", description: "Everyone should limit outdoor activities" };
+        if (aqi <= 300) return { category: "Very Unhealthy", color: "#8f3f97", description: "Avoid outdoor activities" };
+        return { category: "Hazardous", color: "#7e0023", description: "Stay indoors" };
+    }
+
+    generateFallbackInsights(tempC, condition, humidity, windSpeed, locationName) {
+        let tempAnalysis, clothing, comfort;
+        if (tempC < 0) {
+            tempAnalysis = "Freezing conditions with potential for ice formation";
+            clothing = "Heavy winter coat, thermal layers, waterproof boots, gloves and hat";
+            comfort = "Extreme cold can cause frostbite. Limit outdoor exposure and stay hydrated.";
+        } else if (tempC < 10) {
+            tempAnalysis = "Cold weather requiring warm clothing and precautions";
+            clothing = "Warm jacket, long pants, closed shoes, light gloves";
+            comfort = "Cool temperatures may affect circulation. Warm up gradually when coming indoors.";
+        } else if (tempC < 20) {
+            tempAnalysis = "Mild conditions suitable for most outdoor activities";
+            clothing = "Light jacket or sweater, comfortable layers";
+            comfort = "Pleasant conditions for most people. Good for outdoor exercise.";
+        } else if (tempC < 30) {
+            tempAnalysis = "Warm and comfortable weather ideal for outdoor activities";
+            clothing = "Light, breathable clothing, sun protection recommended";
+            comfort = "Excellent conditions for outdoor activities. Stay hydrated in direct sunlight.";
+        } else {
+            tempAnalysis = "Hot weather requiring heat precautions and sun protection";
+            clothing = "Lightweight, loose-fitting, light-colored clothing, wide-brimmed hat";
+            comfort = "High temperatures can cause heat exhaustion. Seek shade, drink plenty of water.";
+        }
+
+        const cl = condition.toLowerCase();
+        let activityRec, risk;
+        if (cl.includes('rain') || cl.includes('shower')) {
+            activityRec = "Indoor activities recommended. If going out, bring waterproof gear.";
+            risk = "Wet surfaces may be slippery. Reduced visibility while driving.";
+        } else if (cl.includes('snow')) {
+            activityRec = "Winter sports opportunities. Exercise caution on icy surfaces.";
+            risk = "Icy conditions possible. Allow extra travel time and drive carefully.";
+        } else if (cl.includes('wind') || windSpeed > 25) {
+            activityRec = "Avoid outdoor activities with loose objects. Good for kite flying in safe areas.";
+            risk = "Strong winds may affect driving and outdoor activities. Secure loose items.";
+        } else if (cl.includes('clear') || cl.includes('sunny')) {
+            activityRec = "Perfect for outdoor activities, hiking, sports, and photography.";
+            risk = "UV exposure risk. Use sunscreen and protective clothing during peak hours.";
+        } else {
+            activityRec = "Generally suitable for planned outdoor activities.";
+            risk = "Standard weather precautions apply.";
+        }
+
+        const humidityNote = humidity > 70 ? 'may feel muggy' : humidity > 30 ? 'provides comfortable conditions' : 'may feel dry';
+        const exerciseNote = (tempC >= 15 && tempC <= 25) ? 'Excellent' : 'Challenging';
+
+        return {
+            weather_pattern_analysis: `Current conditions in ${locationName} show ${tempAnalysis.toLowerCase()}. ${condition} weather with ${humidity}% humidity and ${windSpeed} km/h winds. Atmospheric pressure and temperature patterns suggest stable conditions for the immediate period.`,
+            personalized_recommendations: [
+                `Clothing: ${clothing}`,
+                `Activities: ${activityRec}`,
+                "Stay informed about weather changes through reliable sources",
+                "Plan indoor alternatives for outdoor activities if conditions worsen"
+            ],
+            predictive_insights: `Based on current ${condition.toLowerCase()} conditions and ${tempC}\u00B0C temperature, expect similar weather patterns to continue for the next few hours. Monitor local forecasts for any developing weather systems that might affect ${locationName}.`,
+            health_and_comfort: `${comfort} Current humidity of ${humidity}% ${humidityNote}. ${exerciseNote} conditions for outdoor exercise.`,
+            smart_tips: [
+                `Energy tip: ${tempC < 15 ? 'Use heating efficiently' : tempC > 25 ? 'Consider natural cooling' : 'Optimal temperature for energy savings'}`,
+                `Transportation: ${cl.includes('rain') || cl.includes('snow') ? 'Allow extra travel time' : 'Normal travel conditions expected'}`,
+                `Photography: ${cl.includes('clear') ? 'Great lighting for outdoor photography' : 'Consider indoor or creative weather photography'}`,
+                `Sleep: ${tempC < 22 ? 'Cool, comfortable sleeping weather' : 'May need cooling for comfortable sleep'}`
+            ],
+            risk_assessment: `${risk} Temperature of ${tempC}\u00B0C ${tempC < 5 ? 'poses cold exposure risks' : tempC > 32 ? 'poses heat risks' : 'is within comfortable range'}. UV precautions ${cl.includes('sunny') ? 'strongly recommended' : 'standard'} during daylight hours. Overall risk level: ${tempC < 0 || tempC > 35 || windSpeed > 30 ? 'High' : 'Low to Moderate'}.`
+        };
+    }
+
+    generateFallbackStory(tempC, condition, locationName) {
+        const cl = condition.toLowerCase();
+        if (cl.includes('sunny') || cl.includes('clear'))
+            return `Golden sunlight bathes ${locationName} in warmth at ${tempC}\u00B0C, as nature awakens to a perfect day filled with endless possibilities.`;
+        if (cl.includes('rain'))
+            return `Gentle raindrops dance across ${locationName}, creating a symphony of renewal while the air cools to a refreshing ${tempC}\u00B0C.`;
+        if (cl.includes('cloud'))
+            return `Soft clouds drift lazily over ${locationName}, painting the sky in shades of silver while maintaining a comfortable ${tempC}\u00B0C embrace.`;
+        if (cl.includes('snow'))
+            return `Delicate snowflakes transform ${locationName} into a winter wonderland, each crystal telling stories of the crisp ${tempC}\u00B0C air.`;
+        if (cl.includes('wind'))
+            return `Spirited winds sweep through ${locationName}, carrying whispers of distant places while the temperature holds steady at ${tempC}\u00B0C.`;
+        return `The atmosphere in ${locationName} weaves its own unique tale today, with nature's canvas painted at a perfect ${tempC}\u00B0C.`;
+    }
+
+    // ========== END HELPER FUNCTIONS ==========
 
     // Retry mechanism for failed API calls
     async fetchWithRetry(url, options = {}, maxRetries = 3) {
@@ -164,21 +404,55 @@ class WeatherApp {
 
     async detectUserLocation() {
         try {
-            // Add a small delay to prevent immediate API calls
             await new Promise(resolve => setTimeout(resolve, 1000));
-            
-            const response = await this.fetchWithRetry(`${this.API_BASE}/location/auto`);
-            const result = await response.json();
-            
-            if (result.success && result.data.city) {
-                this.displayDetectedLocation(result.data);
+            const locationData = await this.getIPLocation();
+            if (locationData && locationData.city) {
+                this.displayDetectedLocation(locationData);
             } else {
                 console.log('Location detection returned no data');
             }
         } catch (error) {
             console.log('Auto-location detection failed:', error);
-            // Don't show error here, just log it
         }
+    }
+
+    async getIPLocation() {
+        const services = [
+            {
+                url: 'https://ipapi.co/json/',
+                parse: (data) => ({
+                    city: data.city || '', region: data.region || '',
+                    country: data.country_name || '',
+                    lat: data.latitude || 0, lon: data.longitude || 0,
+                    timezone: data.timezone || '', ip: data.ip || ''
+                })
+            },
+            {
+                url: 'https://ipinfo.io/json',
+                parse: (data) => {
+                    const [lat, lon] = (data.loc || '0,0').split(',').map(Number);
+                    return {
+                        city: data.city || '', region: data.region || '',
+                        country: data.country || '',
+                        lat, lon,
+                        timezone: data.timezone || '', ip: data.ip || ''
+                    };
+                }
+            }
+        ];
+        for (const service of services) {
+            try {
+                const resp = await fetch(service.url, { signal: AbortSignal.timeout(8000) });
+                if (resp.ok) {
+                    const data = await resp.json();
+                    const parsed = service.parse(data);
+                    if (parsed.city) return parsed;
+                }
+            } catch (e) {
+                console.warn(`IP geo service failed: ${service.url}`, e.message);
+            }
+        }
+        return null;
     }
 
     displayDetectedLocation(locationData) {
@@ -193,13 +467,10 @@ class WeatherApp {
 
     async getUserLocation() {
         this.showLoading();
-        
         try {
-            const response = await this.fetchWithRetry(`${this.API_BASE}/location/auto`);
-            const result = await response.json();
-            
-            if (result.success && result.data.city) {
-                await this.searchWeather(result.data.city, result.data);
+            const locationData = await this.getIPLocation();
+            if (locationData && locationData.city) {
+                await this.searchWeather(locationData.city, locationData);
             } else {
                 this.showError('Could not detect your location. Please search manually.');
             }
@@ -214,28 +485,24 @@ class WeatherApp {
 
     async searchWeather(city, autoLocationData = null) {
         this.showLoading();
-        
         try {
-            const locationResponse = await this.fetchWithRetry(`${this.API_BASE}/location/${encodeURIComponent(city)}`);
-            const locationResult = await locationResponse.json();
-            
-            if (!locationResult.success) {
-                if (autoLocationData && autoLocationData.lat && autoLocationData.lon) {
-                    const coordResponse = await this.fetchWithRetry(`${this.API_BASE}/location/coordinates/${autoLocationData.lat}/${autoLocationData.lon}`);
-                    const coordResult = await coordResponse.json();
-                    if (coordResult.success) {
-                        this.currentLocationKey = coordResult.locationKey;
-                        await this.loadWeatherData(coordResult.cityName, coordResult.country, autoLocationData);
-                        return;
-                    }
-                }
-                this.showError('City not found. Please try a different name.');
-                return;
-            }
+            // Use Open-Meteo Geocoding API directly
+            const geoResp = await this.fetchWithRetry(
+                `${this.GEOCODING_URL}?name=${encodeURIComponent(city)}&count=1&language=en&format=json`
+            );
+            const geoData = await geoResp.json();
 
-            this.currentLocationKey = locationResult.locationKey;
-            await this.loadWeatherData(locationResult.cityName, locationResult.country, autoLocationData);
-            
+            if (geoData.results && geoData.results.length > 0) {
+                const result = geoData.results[0];
+                this.currentLocationKey = `${result.latitude},${result.longitude}`;
+                await this.loadWeatherData(result.name || city, result.country || '', autoLocationData);
+            } else if (autoLocationData && autoLocationData.lat && autoLocationData.lon) {
+                // Fallback to coordinates from auto-location
+                this.currentLocationKey = `${autoLocationData.lat},${autoLocationData.lon}`;
+                await this.loadWeatherData(autoLocationData.city || city, autoLocationData.country || '', autoLocationData);
+            } else {
+                this.showError('City not found. Please try a different name.');
+            }
         } catch (error) {
             this.showError(
                 'Please check your internet connection and try again.',
@@ -247,26 +514,47 @@ class WeatherApp {
 
     async loadWeatherData(cityName, country, autoLocationData = null) {
         try {
-            const [currentResponse, forecastResponse, hourlyResponse] = await Promise.all([
-                this.fetchWithRetry(`${this.API_BASE}/weather/current/${this.currentLocationKey}`),
-                this.fetchWithRetry(`${this.API_BASE}/weather/forecast/${this.currentLocationKey}`),
-                this.fetchWithRetry(`${this.API_BASE}/weather/hourly/${this.currentLocationKey}`)
+            const [lat, lon] = this.currentLocationKey.split(',');
+
+            // Fetch all weather data from Open-Meteo in parallel
+            const [currentResp, forecastResp, hourlyResp] = await Promise.all([
+                this.fetchWithRetry(
+                    `${this.WEATHER_URL}?latitude=${lat}&longitude=${lon}` +
+                    `&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,rain,showers,snowfall,weather_code,cloud_cover,pressure_msl,surface_pressure,wind_speed_10m,wind_direction_10m,wind_gusts_10m` +
+                    `&hourly=uv_index,dew_point_2m,visibility&daily=sunrise,sunset,uv_index_max&timezone=auto&forecast_days=1`
+                ),
+                this.fetchWithRetry(
+                    `${this.WEATHER_URL}?latitude=${lat}&longitude=${lon}` +
+                    `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,sunrise,sunset,uv_index_max,wind_speed_10m_max` +
+                    `&timezone=auto&forecast_days=5`
+                ),
+                this.fetchWithRetry(
+                    `${this.WEATHER_URL}?latitude=${lat}&longitude=${lon}` +
+                    `&hourly=temperature_2m,relative_humidity_2m,precipitation_probability,weather_code,visibility,wind_speed_10m,wind_direction_10m,uv_index,is_day` +
+                    `&timezone=auto&forecast_days=1`
+                )
             ]);
 
-            const [currentResult, forecastResult, hourlyResult] = await Promise.all([
-                currentResponse.json(),
-                forecastResponse.json(),
-                hourlyResponse.json()
+            const [currentData, forecastData, hourlyData] = await Promise.all([
+                currentResp.json(), forecastResp.json(), hourlyResp.json()
             ]);
 
-            if (!currentResult.success) {
-                this.showError('Error loading current weather: ' + currentResult.error);
+            // Transform current weather
+            const currentResult = this.transformCurrentWeather(currentData);
+            if (!currentResult) {
+                this.showError('Error loading current weather data.');
                 return;
             }
 
+            // Transform forecast
+            const forecastResult = this.transformForecast(forecastData);
+
+            // Transform hourly
+            const hourlyResult = this.transformHourly(hourlyData);
+
             this.currentWeatherData = currentResult;
-            this.forecastData = forecastResult.success ? forecastResult.data : null;
-            this.hourlyData = hourlyResult.success ? hourlyResult.data : null;
+            this.forecastData = forecastResult;
+            this.hourlyData = hourlyResult;
 
             this.updateBackground(currentResult.computed.weatherBackground);
             this.displayLocationInfo(cityName, country, autoLocationData);
@@ -274,16 +562,128 @@ class WeatherApp {
             this.displayForecast();
             this.displayHourlyForecast();
             this.displayDetailedInfo(currentResult, cityName, country);
-            
+
             this.showWeatherContent();
 
         } catch (error) {
+            console.error('Weather load error:', error);
             this.showError(
                 'Please check your internet connection and try again.',
                 true,
                 () => this.loadWeatherData(cityName, country, autoLocationData)
             );
         }
+    }
+
+    transformCurrentWeather(data) {
+        if (!data || !data.current) return null;
+
+        const current = data.current;
+        const hourly = data.hourly || {};
+        const daily = data.daily || {};
+
+        const nowHour = new Date().getHours();
+        let uvIndex = 0, dewPoint = 0, visibilityM = 10000;
+        if (hourly.uv_index && hourly.uv_index.length > nowHour) uvIndex = hourly.uv_index[nowHour] || 0;
+        if (hourly.dew_point_2m && hourly.dew_point_2m.length > nowHour) dewPoint = hourly.dew_point_2m[nowHour] || 0;
+        if (hourly.visibility && hourly.visibility.length > nowHour) visibilityM = hourly.visibility[nowHour] || 10000;
+
+        const visibilityKm = Math.round(visibilityM / 1000 * 10) / 10;
+        const condition = this.wmoCodeToText(current.weather_code || 0);
+        const tempC = current.temperature_2m || 0;
+        const humidity = current.relative_humidity_2m || 0;
+        const windSpeed = current.wind_speed_10m || 0;
+        const windDir = current.wind_direction_10m || 0;
+        const pressure = current.pressure_msl || 1013;
+        const feelsLike = current.apparent_temperature || tempC;
+        const sunrise = daily.sunrise ? daily.sunrise[0] : null;
+        const sunset = daily.sunset ? daily.sunset[0] : null;
+
+        const weatherData = {
+            WeatherText: condition,
+            Temperature: { Metric: { Value: tempC, Unit: 'C' } },
+            RealFeelTemperature: { Metric: { Value: feelsLike, Unit: 'C' } },
+            RelativeHumidity: humidity,
+            Wind: {
+                Speed: { Metric: { Value: windSpeed, Unit: 'km/h' } },
+                Direction: { Localized: this.windDegreeToDirection(windDir) }
+            },
+            Visibility: { Metric: { Value: visibilityKm, Unit: 'km' } },
+            Pressure: { Metric: { Value: pressure, Unit: 'mb' } },
+            UVIndex: Math.round(uvIndex),
+            DewPoint: { Metric: { Value: dewPoint, Unit: 'C' } }
+        };
+        if (sunrise && sunset) weatherData.Sun = { Rise: sunrise, Set: sunset };
+
+        const comfortLevel = this.getComfortLevel(tempC, humidity, windSpeed);
+        const activities = this.getActivityRecommendations(weatherData);
+        const lifestyleTips = this.getLifestyleTips(weatherData);
+        const weatherIcon = this.getWeatherIconEmoji(condition);
+        const weatherBg = this.getWeatherBackground(condition);
+        const weatherSound = this.getWeatherSoundFile(condition);
+
+        // Simulate AQI based on visibility
+        let aqi;
+        if (visibilityKm >= 10) aqi = 25;
+        else if (visibilityKm >= 7) aqi = 55;
+        else if (visibilityKm >= 5) aqi = 85;
+        else aqi = 125;
+        if (['fog', 'haze', 'smoke'].some(w => condition.toLowerCase().includes(w))) aqi += 30;
+        else if (['rain', 'shower'].some(w => condition.toLowerCase().includes(w))) aqi -= 15;
+        aqi = Math.max(0, Math.min(300, aqi));
+        const aqiInfo = this.getAqiInfo(aqi);
+
+        return {
+            success: true,
+            data: weatherData,
+            computed: {
+                comfortLevel, activities, lifestyleTips,
+                weatherIcon, weatherBackground: weatherBg,
+                weatherSound, aqi, aqiInfo
+            }
+        };
+    }
+
+    transformForecast(data) {
+        if (!data || !data.daily) return null;
+        const daily = data.daily;
+        const forecasts = [];
+        for (let i = 0; i < (daily.time || []).length; i++) {
+            const condition = this.wmoCodeToText(daily.weather_code[i]);
+            forecasts.push({
+                Date: daily.time[i],
+                Temperature: {
+                    Minimum: { Value: daily.temperature_2m_min[i], Unit: 'C' },
+                    Maximum: { Value: daily.temperature_2m_max[i], Unit: 'C' }
+                },
+                Day: {
+                    IconPhrase: condition,
+                    PrecipitationProbability: daily.precipitation_probability_max ? (daily.precipitation_probability_max[i] || 0) : 0
+                },
+                computed: { icon: this.getWeatherIconEmoji(condition) }
+            });
+        }
+        return { DailyForecasts: forecasts };
+    }
+
+    transformHourly(data) {
+        if (!data || !data.hourly) return null;
+        const hourly = data.hourly;
+        const result = [];
+        const nowHour = new Date().getHours();
+        const total = (hourly.time || []).length;
+        for (let i = nowHour; i < Math.min(nowHour + 12, total); i++) {
+            const condition = this.wmoCodeToText(hourly.weather_code[i]);
+            result.push({
+                DateTime: hourly.time[i],
+                Temperature: { Value: hourly.temperature_2m[i], Unit: 'C' },
+                IconPhrase: condition,
+                PrecipitationProbability: hourly.precipitation_probability ? (hourly.precipitation_probability[i] || 0) : 0,
+                RelativeHumidity: hourly.relative_humidity_2m ? hourly.relative_humidity_2m[i] : 0,
+                computed: { icon: this.getWeatherIconEmoji(condition) }
+            });
+        }
+        return result;
     }
 
     displayLocationInfo(cityName, country, autoLocationData) {
@@ -928,16 +1328,16 @@ class WeatherApp {
     // 2. GPS Location Detection
     async getUserLocationGPS() {
         this.showLoadingWithGPS();
-        
+
         if (!navigator.geolocation) {
             this.fallbackToIPLocation();
             return;
         }
 
         const options = {
-            enableHighAccuracy: false, // Changed to false for better compatibility
-            timeout: 15000, // Increased timeout
-            maximumAge: 600000 // 10 minutes
+            enableHighAccuracy: false,
+            timeout: 15000,
+            maximumAge: 600000
         };
 
         try {
@@ -946,21 +1346,31 @@ class WeatherApp {
             });
 
             const { latitude, longitude } = position.coords;
-            
-            // Get location name from coordinates
-            const response = await fetch(`${this.API_BASE}/location/coordinates/${latitude}/${longitude}`);
-            const result = await response.json();
-            
-            if (result.success) {
-                this.currentLocationKey = result.locationKey;
-                await this.loadWeatherData(result.cityName, result.country, {
-                    lat: latitude,
-                    lon: longitude,
-                    accuracy: position.coords.accuracy
-                });
-            } else {
-                throw new Error('Location not found');
+            this.currentLocationKey = `${latitude},${longitude}`;
+
+            // Reverse geocode using Open-Meteo geocoding (find nearest city)
+            let cityName = 'Your Location';
+            let country = '';
+            try {
+                const geoResp = await fetch(
+                    `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json&zoom=10`,
+                    { headers: { 'User-Agent': 'WEATHER-APP (https://github.com/Tranquil666/WEATHER-APP)' } }
+                );
+                if (geoResp.ok) {
+                    const geoData = await geoResp.json();
+                    const addr = geoData.address || {};
+                    cityName = addr.city || addr.town || addr.village || addr.municipality || 'Your Location';
+                    country = addr.country || '';
+                }
+            } catch (e) {
+                console.error('Reverse geocoding failed:', e);
             }
+
+            await this.loadWeatherData(cityName, country, {
+                lat: latitude,
+                lon: longitude,
+                accuracy: position.coords.accuracy
+            });
         } catch (error) {
             console.log('GPS location failed:', error);
             this.fallbackToIPLocation();
@@ -969,11 +1379,9 @@ class WeatherApp {
 
     async fallbackToIPLocation() {
         try {
-            const response = await fetch(`${this.API_BASE}/location/auto`);
-            const result = await response.json();
-            
-            if (result.success && result.data.city) {
-                await this.searchWeather(result.data.city, result.data);
+            const locationData = await this.getIPLocation();
+            if (locationData && locationData.city) {
+                await this.searchWeather(locationData.city, locationData);
             } else {
                 this.showLocationError();
             }
@@ -1218,19 +1626,20 @@ class WeatherApp {
 
         try {
             const locationName = `${this.currentCity}, ${this.currentCountry}`;
-            const response = await fetch(
-                `${this.API_BASE}/ai/weather-insights/${this.currentLocationKey}?location=${encodeURIComponent(locationName)}`
-            );
-            const result = await response.json();
+            const data = this.currentWeatherData.data;
+            const tempC = data.Temperature.Metric.Value;
+            const condition = data.WeatherText;
+            const humidity = data.RelativeHumidity;
+            const windSpeed = data.Wind.Speed.Metric.Value;
 
-            if (result.success) {
-                this.displayAIInsights(result.ai_insights, result.weather_story, result.generated_at);
-            } else {
-                this.showAIError('AI analysis temporarily unavailable. Please try again later.');
-            }
+            // Generate insights locally (no backend/AI API needed)
+            const insights = this.generateFallbackInsights(tempC, condition, humidity, windSpeed, locationName);
+            const story = this.generateFallbackStory(tempC, condition, locationName);
+
+            this.displayAIInsights(insights, story, new Date().toISOString());
         } catch (error) {
             console.error('AI insights error:', error);
-            this.showAIError('Unable to load AI insights. Please check your connection.');
+            this.showAIError('Unable to generate weather insights.');
         }
     }
 

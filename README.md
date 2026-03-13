@@ -1,5 +1,7 @@
 # Weather App - HTML/CSS/Bootstrap Version
 
+🔗 **Live Demo:** [https://tranquil666.github.io/WEATHER-APP/](https://tranquil666.github.io/WEATHER-APP/)
+
 A beautiful, responsive weather application built with HTML, CSS, Bootstrap, and JavaScript, featuring real-time weather data, interactive charts, and immersive weather sounds.
 
 ## Features
@@ -72,10 +74,12 @@ A beautiful, responsive weather application built with HTML, CSS, Bootstrap, and
 
 ### API Configuration
 
-The app uses AccuWeather API. The API key is already included for demo purposes, but for production use, you should:
+The app uses [Open-Meteo API](https://open-meteo.com/) for weather data — a free, open-source weather API that requires **no API key**.
 
-1. Get your own API key from [AccuWeather Developer Portal](https://developer.accuweather.com/)
-2. Replace the `API_KEY` in `backend.py` with your key
+For AI-powered weather insights (optional), set the `GEMINI_API_KEY` environment variable:
+```bash
+export GEMINI_API_KEY="your-gemini-api-key"
+```
 
 ## File Structure
 
@@ -155,7 +159,7 @@ WEATHER APP/
 
 2. **API Errors**
    - Check internet connection
-   - Verify API key is valid
+   - Open-Meteo API requires no key and has no rate limits for non-commercial use
    - Some locations might not be found - try different city names
 
 3. **Sounds Not Playing**
@@ -191,15 +195,23 @@ WEATHER APP/
 
 ## Credits
 
-- **Weather Data**: AccuWeather API
+- **Weather Data**: [Open-Meteo API](https://open-meteo.com/) (free, open-source)
 - **Icons**: Unicode emoji and Bootstrap Icons
 - **Charts**: Chart.js library
 - **Framework**: Bootstrap 5
 - **Fonts**: Google Fonts (Inter)
 
+## Deployment
+
+The frontend is automatically deployed to **GitHub Pages** on every push to the `main` branch via the `.github/workflows/deploy.yml` workflow.
+
+**Live URL:** [https://tranquil666.github.io/WEATHER-APP/](https://tranquil666.github.io/WEATHER-APP/)
+
+> **Note:** The app is fully standalone — it calls the Open-Meteo API directly from the browser, so no backend server is needed. Just open the live URL above to check weather for any city.
+
 ## License
 
-This project is for educational and personal use. Please respect the AccuWeather API terms of service.
+This project is for educational and personal use. Weather data is provided by [Open-Meteo](https://open-meteo.com/) under their open-source terms.
 
 ---
 
