@@ -1,5 +1,7 @@
 # Weather App - HTML/CSS/Bootstrap Version
 
+🔗 **Live Demo:** [https://tranquil666.github.io/WEATHER-APP/](https://tranquil666.github.io/WEATHER-APP/)
+
 A beautiful, responsive weather application built with HTML, CSS, Bootstrap, and JavaScript, featuring real-time weather data, interactive charts, and immersive weather sounds.
 
 ## Features
@@ -196,6 +198,14 @@ WEATHER APP/
 - **Charts**: Chart.js library
 - **Framework**: Bootstrap 5
 - **Fonts**: Google Fonts (Inter)
+
+## Deployment
+
+The frontend is automatically deployed to **GitHub Pages** on every push to the `main` branch via the `.github/workflows/deploy.yml` workflow.
+
+**Live URL:** [https://tranquil666.github.io/WEATHER-APP/](https://tranquil666.github.io/WEATHER-APP/)
+
+> **Note:** The GitHub Pages deployment serves the static frontend. For full API functionality (weather data lookups), the Flask backend (`backend.py`) must be hosted separately — see the [Installation](#installation) section for backend setup instructions.
 
 ## License
 
