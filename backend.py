@@ -335,27 +335,17 @@ def get_location_key(city):
 
 @app.route('/api/location/coordinates/<lat>/<lon>')
 def get_location_by_coordinates(lat, lon):
-    """Get location key using coordinates via Open-Meteo reverse geocoding"""
+    """Get location key using coordinates with reverse geocoding"""
     try:
-        # Use Open-Meteo geocoding with coordinates (reverse geocode via nearest city)
-        response = requests.get(GEOCODING_URL, params={
-            'name': '',
-            'count': 1,
-            'language': 'en',
-            'format': 'json'
-        }, timeout=10)
-
-        # Open-Meteo doesn't have a true reverse geocoding endpoint,
-        # so we use the coordinates directly as the location key
         location_key = f"{lat},{lon}"
-        # Try to get city name from a reverse geocoding service
+        # Try to get city name from Nominatim reverse geocoding
         city_name = "Your Location"
         country = ""
         try:
             nominatim_resp = requests.get(
-                f"https://nominatim.openstreetmap.org/reverse",
+                "https://nominatim.openstreetmap.org/reverse",
                 params={'lat': lat, 'lon': lon, 'format': 'json', 'zoom': 10},
-                headers={'User-Agent': 'WeatherApp/1.0'},
+                headers={'User-Agent': 'WEATHER-APP (https://github.com/Tranquil666/WEATHER-APP)'},
                 timeout=5
             )
             if nominatim_resp.status_code == 200:
@@ -573,7 +563,7 @@ def get_hourly_forecast(location_key):
                 'wind_direction_10m', 'uv_index', 'is_day'
             ]),
             'timezone': 'auto',
-            'forecast_hours': 12
+            'forecast_days': 1
         }, timeout=10)
         response.raise_for_status()
         data = response.json()
@@ -584,7 +574,10 @@ def get_hourly_forecast(location_key):
         hourly = data['hourly']
         hourly_list = []
 
-        for i in range(min(12, len(hourly.get('time', [])))):
+        # Start from current hour to get upcoming 12 hours
+        now_hour = datetime.now().hour
+        total_hours = len(hourly.get('time', []))
+        for i in range(now_hour, min(now_hour + 12, total_hours)):
             condition = wmo_code_to_text(hourly['weather_code'][i])
             hourly_list.append({
                 'DateTime': hourly['time'][i],
