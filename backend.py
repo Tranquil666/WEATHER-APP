@@ -3,39 +3,86 @@ from flask_cors import CORS
 import requests
 from datetime import datetime
 import json
-import google.generativeai as genai
+import os
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
-# AccuWeather API configuration
-API_KEY = "zpka_9f619c9946024b80a7d88a0aba311535_7b0c917b"
-BASE_URL = "http://dataservice.accuweather.com"
+# Open-Meteo API configuration (free, open-source, no API key required)
+GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
+WEATHER_URL = "https://api.open-meteo.com/v1/forecast"
 
 # Gemini AI configuration - Using the most advanced model
-GEMINI_API_KEY = "AIzaSyDGeftpKyhZ1dYh03h_dKwWD2CNZ_PirpY"
-genai.configure(api_key=GEMINI_API_KEY)
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+gemini_available = False
+model = None
 
-# Use the most advanced Gemini model with enhanced configuration
-generation_config = {
-    "temperature": 0.7,
-    "top_p": 0.8,
-    "top_k": 40,
-    "max_output_tokens": 2048,
-}
+try:
+    import google.generativeai as genai
+    if GEMINI_API_KEY:
+        genai.configure(api_key=GEMINI_API_KEY)
+        generation_config = {
+            "temperature": 0.7,
+            "top_p": 0.8,
+            "top_k": 40,
+            "max_output_tokens": 2048,
+        }
+        safety_settings = [
+            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+        ]
+        model = genai.GenerativeModel(
+            model_name="gemini-1.5-pro-latest",
+            generation_config=generation_config,
+            safety_settings=safety_settings
+        )
+        gemini_available = True
+except ImportError:
+    print("google-generativeai not installed, AI features disabled")
 
-safety_settings = [
-    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
-    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
-    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
-    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
-]
+def wmo_code_to_text(code):
+    """Convert WMO weather code to human-readable text"""
+    wmo_map = {
+        0: "Clear sky",
+        1: "Mainly clear",
+        2: "Partly cloudy",
+        3: "Overcast",
+        45: "Foggy",
+        48: "Depositing rime fog",
+        51: "Light drizzle",
+        53: "Moderate drizzle",
+        55: "Dense drizzle",
+        56: "Light freezing drizzle",
+        57: "Dense freezing drizzle",
+        61: "Slight rain",
+        63: "Moderate rain",
+        65: "Heavy rain",
+        66: "Light freezing rain",
+        67: "Heavy freezing rain",
+        71: "Slight snowfall",
+        73: "Moderate snowfall",
+        75: "Heavy snowfall",
+        77: "Snow grains",
+        80: "Slight rain showers",
+        81: "Moderate rain showers",
+        82: "Violent rain showers",
+        85: "Slight snow showers",
+        86: "Heavy snow showers",
+        95: "Thunderstorm",
+        96: "Thunderstorm with slight hail",
+        99: "Thunderstorm with heavy hail",
+    }
+    return wmo_map.get(code, "Clear sky")
 
-model = genai.GenerativeModel(
-    model_name="gemini-1.5-pro-latest",
-    generation_config=generation_config,
-    safety_settings=safety_settings
-)
+
+def wind_degree_to_direction(degrees):
+    """Convert wind direction in degrees to compass direction"""
+    directions = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
+                  "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"]
+    idx = round(degrees / 22.5) % 16
+    return directions[idx]
 
 def get_weather_background(condition):
     """Get background gradient based on weather condition"""
@@ -261,24 +308,25 @@ def serve_static(filename):
 
 @app.route('/api/location/<city>')
 def get_location_key(city):
-    """Get location key for a city"""
-    url = f"{BASE_URL}/locations/v1/cities/search"
-    params = {
-        'apikey': API_KEY,
-        'q': city
-    }
-    
+    """Get location key for a city using Open-Meteo Geocoding API"""
     try:
-        response = requests.get(url, params=params, timeout=10)
+        response = requests.get(GEOCODING_URL, params={
+            'name': city,
+            'count': 1,
+            'language': 'en',
+            'format': 'json'
+        }, timeout=10)
         response.raise_for_status()
         data = response.json()
-        
-        if data:
+
+        if data.get('results'):
+            result = data['results'][0]
+            location_key = f"{result['latitude']},{result['longitude']}"
             return jsonify({
                 'success': True,
-                'locationKey': data[0]['Key'],
-                'cityName': data[0]['LocalizedName'],
-                'country': data[0]['Country']['LocalizedName']
+                'locationKey': location_key,
+                'cityName': result.get('name', city),
+                'country': result.get('country', '')
             })
         else:
             return jsonify({'success': False, 'error': 'City not found'})
@@ -287,178 +335,275 @@ def get_location_key(city):
 
 @app.route('/api/location/coordinates/<lat>/<lon>')
 def get_location_by_coordinates(lat, lon):
-    """Get AccuWeather location key using coordinates"""
-    url = f"{BASE_URL}/locations/v1/cities/geoposition/search"
-    params = {
-        'apikey': API_KEY,
-        'q': f"{lat},{lon}"
-    }
-    
+    """Get location key using coordinates via Open-Meteo reverse geocoding"""
     try:
-        response = requests.get(url, params=params, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        
-        if data:
-            return jsonify({
-                'success': True,
-                'locationKey': data['Key'],
-                'cityName': data['LocalizedName'],
-                'country': data['Country']['LocalizedName']
-            })
-        else:
-            return jsonify({'success': False, 'error': 'Location not found'})
+        # Use Open-Meteo geocoding with coordinates (reverse geocode via nearest city)
+        response = requests.get(GEOCODING_URL, params={
+            'name': '',
+            'count': 1,
+            'language': 'en',
+            'format': 'json'
+        }, timeout=10)
+
+        # Open-Meteo doesn't have a true reverse geocoding endpoint,
+        # so we use the coordinates directly as the location key
+        location_key = f"{lat},{lon}"
+        # Try to get city name from a reverse geocoding service
+        city_name = "Your Location"
+        country = ""
+        try:
+            nominatim_resp = requests.get(
+                f"https://nominatim.openstreetmap.org/reverse",
+                params={'lat': lat, 'lon': lon, 'format': 'json', 'zoom': 10},
+                headers={'User-Agent': 'WeatherApp/1.0'},
+                timeout=5
+            )
+            if nominatim_resp.status_code == 200:
+                nom_data = nominatim_resp.json()
+                address = nom_data.get('address', {})
+                city_name = (address.get('city') or address.get('town')
+                             or address.get('village') or address.get('municipality')
+                             or "Your Location")
+                country = address.get('country', '')
+        except Exception:
+            pass
+
+        return jsonify({
+            'success': True,
+            'locationKey': location_key,
+            'cityName': city_name,
+            'country': country
+        })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/api/weather/current/<location_key>')
 def get_current_weather(location_key):
-    """Get current weather conditions"""
-    current_url = f"{BASE_URL}/currentconditions/v1/{location_key}"
-    forecast_url = f"{BASE_URL}/forecasts/v1/daily/1day/{location_key}"
-    
-    current_params = {
-        'apikey': API_KEY,
-        'details': 'true'
-    }
-    
-    forecast_params = {
-        'apikey': API_KEY,
-        'details': 'true',
-        'metric': 'true'
-    }
-    
+    """Get current weather conditions using Open-Meteo API"""
     try:
-        # Get both current conditions and today's forecast for sunrise/sunset
-        current_response = requests.get(current_url, params=current_params, timeout=10)
-        forecast_response = requests.get(forecast_url, params=forecast_params, timeout=10)
-        
-        current_response.raise_for_status()
-        current_data = current_response.json()
-        
-        if current_data:
-            weather_data = current_data[0]
-            
-            # Add sunrise/sunset from forecast if available
-            if forecast_response.status_code == 200:
-                forecast_data = forecast_response.json()
-                if forecast_data and 'DailyForecasts' in forecast_data and len(forecast_data['DailyForecasts']) > 0:
-                    today_forecast = forecast_data['DailyForecasts'][0]
-                    if 'Sun' in today_forecast:
-                        weather_data['Sun'] = today_forecast['Sun']
-            
-            # Add computed values
-            temp_c = weather_data['Temperature']['Metric']['Value']
-            humidity = weather_data['RelativeHumidity']
-            wind_speed = weather_data['Wind']['Speed']['Metric']['Value']
-            condition = weather_data['WeatherText']
-            
-            # Get additional info
-            comfort_level = get_comfort_level(temp_c, humidity, wind_speed)
-            activities = get_activity_recommendations(weather_data)
-            lifestyle_tips = get_lifestyle_tips(weather_data)
-            weather_icon = get_weather_icon(condition)
-            weather_bg = get_weather_background(condition)
-            weather_sound = get_weather_sound(condition)
-            
-            # Simulate AQI based on visibility and conditions
-            visibility = weather_data.get('Visibility', {}).get('Metric', {}).get('Value', 10)
-            if visibility >= 10:
-                aqi = 25  # Good
-            elif visibility >= 7:
-                aqi = 55  # Moderate
-            elif visibility >= 5:
-                aqi = 85  # Unhealthy for sensitive groups
-            else:
-                aqi = 125  # Unhealthy
-            
-            # Adjust based on weather conditions
-            if any(word in condition.lower() for word in ['fog', 'haze', 'smoke']):
-                aqi += 30
-            elif any(word in condition.lower() for word in ['rain', 'shower']):
-                aqi -= 15
-            
-            aqi = max(0, min(300, aqi))  # Keep within 0-300 range
-            aqi_info = get_aqi_info(aqi)
-            
-            return jsonify({
-                'success': True,
-                'data': weather_data,
-                'computed': {
-                    'comfortLevel': comfort_level,
-                    'activities': activities,
-                    'lifestyleTips': lifestyle_tips,
-                    'weatherIcon': weather_icon,
-                    'weatherBackground': weather_bg,
-                    'weatherSound': weather_sound,
-                    'aqi': aqi,
-                    'aqiInfo': aqi_info
-                }
-            })
-        else:
+        lat, lon = location_key.split(',')
+
+        response = requests.get(WEATHER_URL, params={
+            'latitude': lat,
+            'longitude': lon,
+            'current': ','.join([
+                'temperature_2m', 'relative_humidity_2m', 'apparent_temperature',
+                'is_day', 'precipitation', 'rain', 'showers', 'snowfall',
+                'weather_code', 'cloud_cover', 'pressure_msl', 'surface_pressure',
+                'wind_speed_10m', 'wind_direction_10m', 'wind_gusts_10m'
+            ]),
+            'hourly': 'uv_index,dew_point_2m,visibility',
+            'daily': 'sunrise,sunset,uv_index_max',
+            'timezone': 'auto',
+            'forecast_days': 1
+        }, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+
+        if not data or 'current' not in data:
             return jsonify({'success': False, 'error': 'No weather data found'})
+
+        current = data['current']
+        hourly = data.get('hourly', {})
+        daily = data.get('daily', {})
+
+        # Get the current hour index for hourly data
+        now_hour = datetime.now().hour
+        uv_index = 0
+        dew_point = 0
+        visibility_m = 10000
+        if hourly.get('uv_index') and len(hourly['uv_index']) > now_hour:
+            uv_index = hourly['uv_index'][now_hour] or 0
+        if hourly.get('dew_point_2m') and len(hourly['dew_point_2m']) > now_hour:
+            dew_point = hourly['dew_point_2m'][now_hour] or 0
+        if hourly.get('visibility') and len(hourly['visibility']) > now_hour:
+            visibility_m = hourly['visibility'][now_hour] or 10000
+
+        visibility_km = round(visibility_m / 1000, 1)
+
+        condition = wmo_code_to_text(current.get('weather_code', 0))
+        temp_c = current.get('temperature_2m', 0)
+        humidity = current.get('relative_humidity_2m', 0)
+        wind_speed = current.get('wind_speed_10m', 0)
+        wind_dir = current.get('wind_direction_10m', 0)
+        pressure = current.get('pressure_msl', 1013)
+        feels_like = current.get('apparent_temperature', temp_c)
+
+        sunrise = daily.get('sunrise', [None])[0]
+        sunset = daily.get('sunset', [None])[0]
+
+        # Build AccuWeather-compatible response structure
+        weather_data = {
+            'WeatherText': condition,
+            'Temperature': {
+                'Metric': {'Value': temp_c, 'Unit': 'C'}
+            },
+            'RealFeelTemperature': {
+                'Metric': {'Value': feels_like, 'Unit': 'C'}
+            },
+            'RelativeHumidity': humidity,
+            'Wind': {
+                'Speed': {'Metric': {'Value': wind_speed, 'Unit': 'km/h'}},
+                'Direction': {'Localized': wind_degree_to_direction(wind_dir)}
+            },
+            'Visibility': {
+                'Metric': {'Value': visibility_km, 'Unit': 'km'}
+            },
+            'Pressure': {
+                'Metric': {'Value': pressure, 'Unit': 'mb'}
+            },
+            'UVIndex': round(uv_index),
+            'DewPoint': {
+                'Metric': {'Value': dew_point, 'Unit': 'C'}
+            },
+        }
+
+        if sunrise and sunset:
+            weather_data['Sun'] = {
+                'Rise': sunrise,
+                'Set': sunset
+            }
+
+        # Compute additional values
+        comfort_level = get_comfort_level(temp_c, humidity, wind_speed)
+        activities = get_activity_recommendations(weather_data)
+        lifestyle_tips = get_lifestyle_tips(weather_data)
+        weather_icon = get_weather_icon(condition)
+        weather_bg = get_weather_background(condition)
+        weather_sound = get_weather_sound(condition)
+
+        # Simulate AQI based on visibility and conditions
+        if visibility_km >= 10:
+            aqi = 25
+        elif visibility_km >= 7:
+            aqi = 55
+        elif visibility_km >= 5:
+            aqi = 85
+        else:
+            aqi = 125
+
+        if any(word in condition.lower() for word in ['fog', 'haze', 'smoke']):
+            aqi += 30
+        elif any(word in condition.lower() for word in ['rain', 'shower']):
+            aqi -= 15
+
+        aqi = max(0, min(300, aqi))
+        aqi_info = get_aqi_info(aqi)
+
+        return jsonify({
+            'success': True,
+            'data': weather_data,
+            'computed': {
+                'comfortLevel': comfort_level,
+                'activities': activities,
+                'lifestyleTips': lifestyle_tips,
+                'weatherIcon': weather_icon,
+                'weatherBackground': weather_bg,
+                'weatherSound': weather_sound,
+                'aqi': aqi,
+                'aqiInfo': aqi_info
+            }
+        })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/api/weather/forecast/<location_key>')
 def get_5day_forecast(location_key):
-    """Get 5-day weather forecast"""
-    url = f"{BASE_URL}/forecasts/v1/daily/5day/{location_key}"
-    params = {
-        'apikey': API_KEY,
-        'details': 'true',
-        'metric': 'true'
-    }
-    
+    """Get 5-day weather forecast using Open-Meteo API"""
     try:
-        response = requests.get(url, params=params, timeout=10)
+        lat, lon = location_key.split(',')
+
+        response = requests.get(WEATHER_URL, params={
+            'latitude': lat,
+            'longitude': lon,
+            'daily': ','.join([
+                'weather_code', 'temperature_2m_max', 'temperature_2m_min',
+                'precipitation_probability_max', 'precipitation_sum',
+                'sunrise', 'sunset', 'uv_index_max',
+                'wind_speed_10m_max'
+            ]),
+            'timezone': 'auto',
+            'forecast_days': 5
+        }, timeout=10)
         response.raise_for_status()
         data = response.json()
-        
-        if data:
-            # Add icons for each day
-            for day in data['DailyForecasts']:
-                day['computed'] = {
-                    'icon': get_weather_icon(day['Day']['IconPhrase'])
-                }
-            
-            return jsonify({
-                'success': True,
-                'data': data
-            })
-        else:
+
+        if not data or 'daily' not in data:
             return jsonify({'success': False, 'error': 'No forecast data found'})
+
+        daily = data['daily']
+        daily_forecasts = []
+
+        for i in range(len(daily.get('time', []))):
+            condition = wmo_code_to_text(daily['weather_code'][i])
+            daily_forecasts.append({
+                'Date': daily['time'][i],
+                'Temperature': {
+                    'Minimum': {'Value': daily['temperature_2m_min'][i], 'Unit': 'C'},
+                    'Maximum': {'Value': daily['temperature_2m_max'][i], 'Unit': 'C'}
+                },
+                'Day': {
+                    'IconPhrase': condition,
+                    'PrecipitationProbability': daily['precipitation_probability_max'][i] or 0
+                },
+                'computed': {
+                    'icon': get_weather_icon(condition)
+                }
+            })
+
+        return jsonify({
+            'success': True,
+            'data': {'DailyForecasts': daily_forecasts}
+        })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/api/weather/hourly/<location_key>')
 def get_hourly_forecast(location_key):
-    """Get 12-hour forecast"""
-    url = f"{BASE_URL}/forecasts/v1/hourly/12hour/{location_key}"
-    params = {
-        'apikey': API_KEY,
-        'details': 'true',
-        'metric': 'true'
-    }
-    
+    """Get 12-hour forecast using Open-Meteo API"""
     try:
-        response = requests.get(url, params=params, timeout=10)
+        lat, lon = location_key.split(',')
+
+        response = requests.get(WEATHER_URL, params={
+            'latitude': lat,
+            'longitude': lon,
+            'hourly': ','.join([
+                'temperature_2m', 'relative_humidity_2m', 'precipitation_probability',
+                'weather_code', 'visibility', 'wind_speed_10m',
+                'wind_direction_10m', 'uv_index', 'is_day'
+            ]),
+            'timezone': 'auto',
+            'forecast_hours': 12
+        }, timeout=10)
         response.raise_for_status()
         data = response.json()
-        
-        if data:
-            # Add icons for each hour
-            for hour in data:
-                hour['computed'] = {
-                    'icon': get_weather_icon(hour['IconPhrase'])
-                }
-            
-            return jsonify({
-                'success': True,
-                'data': data
-            })
-        else:
+
+        if not data or 'hourly' not in data:
             return jsonify({'success': False, 'error': 'No hourly data found'})
+
+        hourly = data['hourly']
+        hourly_list = []
+
+        for i in range(min(12, len(hourly.get('time', [])))):
+            condition = wmo_code_to_text(hourly['weather_code'][i])
+            hourly_list.append({
+                'DateTime': hourly['time'][i],
+                'Temperature': {
+                    'Value': hourly['temperature_2m'][i],
+                    'Unit': 'C'
+                },
+                'IconPhrase': condition,
+                'PrecipitationProbability': hourly['precipitation_probability'][i] or 0,
+                'RelativeHumidity': hourly['relative_humidity_2m'][i],
+                'computed': {
+                    'icon': get_weather_icon(condition)
+                }
+            })
+
+        return jsonify({
+            'success': True,
+            'data': hourly_list
+        })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
@@ -541,6 +686,12 @@ def get_user_location():
 # AI-POWERED WEATHER INTELLIGENCE FUNCTIONS
 def generate_ai_weather_insights(current_weather, forecast_data, location_name):
     """Generate AI-powered weather insights using advanced Gemini model"""
+    if not gemini_available:
+        temp_c = current_weather['Temperature']['Metric']['Value']
+        condition = current_weather['WeatherText']
+        humidity = current_weather['RelativeHumidity']
+        wind_speed = current_weather['Wind']['Speed']['Metric']['Value']
+        return generate_enhanced_fallback_insights(temp_c, condition, humidity, wind_speed, location_name)
     try:
         # Prepare comprehensive weather data for AI analysis
         temp_c = current_weather['Temperature']['Metric']['Value']
@@ -714,6 +865,9 @@ def generate_ai_weather_story(weather_data, location_name):
         temp_c = weather_data['Temperature']['Metric']['Value']
         condition = weather_data['WeatherText']
         humidity = weather_data['RelativeHumidity']
+
+        if not gemini_available:
+            return generate_fallback_story(temp_c, condition, location_name)
         
         prompt = f"""Write a beautiful, poetic weather story for {location_name}. Current conditions: {temp_c}°C, {condition}, {humidity}% humidity.
 
@@ -763,27 +917,67 @@ def generate_fallback_story(temp_c, condition, location_name):
 def get_ai_weather_insights(location_key):
     """Get AI-powered weather insights"""
     try:
-        # Get current weather data
-        current_url = f"{BASE_URL}/currentconditions/v1/{location_key}"
-        forecast_url = f"{BASE_URL}/forecasts/v1/daily/3day/{location_key}"
-        
-        current_params = {'apikey': API_KEY, 'details': 'true'}
-        forecast_params = {'apikey': API_KEY, 'details': 'true', 'metric': 'true'}
-        
-        current_response = requests.get(current_url, params=current_params, timeout=10)
-        forecast_response = requests.get(forecast_url, params=forecast_params, timeout=10)
-        
-        if current_response.status_code == 200:
-            current_data = current_response.json()[0]
-            forecast_data = forecast_response.json() if forecast_response.status_code == 200 else None
-            
-            # Get location name from request or use default
+        lat, lon = location_key.split(',')
+
+        # Get current weather data from Open-Meteo
+        response = requests.get(WEATHER_URL, params={
+            'latitude': lat,
+            'longitude': lon,
+            'current': ','.join([
+                'temperature_2m', 'relative_humidity_2m', 'apparent_temperature',
+                'weather_code', 'pressure_msl', 'wind_speed_10m'
+            ]),
+            'hourly': 'uv_index',
+            'daily': ','.join([
+                'weather_code', 'temperature_2m_max', 'temperature_2m_min'
+            ]),
+            'timezone': 'auto',
+            'forecast_days': 3
+        }, timeout=10)
+
+        if response.status_code == 200:
+            data = response.json()
+            current = data.get('current', {})
+            daily = data.get('daily', {})
+            hourly = data.get('hourly', {})
+
+            now_hour = datetime.now().hour
+            uv_index = 0
+            if hourly.get('uv_index') and len(hourly['uv_index']) > now_hour:
+                uv_index = hourly['uv_index'][now_hour] or 0
+
+            # Build AccuWeather-compatible structure for AI functions
+            current_data = {
+                'Temperature': {'Metric': {'Value': current.get('temperature_2m', 0)}},
+                'RealFeelTemperature': {'Metric': {'Value': current.get('apparent_temperature', 0)}},
+                'WeatherText': wmo_code_to_text(current.get('weather_code', 0)),
+                'RelativeHumidity': current.get('relative_humidity_2m', 0),
+                'Wind': {'Speed': {'Metric': {'Value': current.get('wind_speed_10m', 0)}}},
+                'Pressure': {'Metric': {'Value': current.get('pressure_msl', 1013)}},
+                'UVIndex': round(uv_index)
+            }
+
+            # Build forecast data
+            forecast_data = None
+            if daily.get('time'):
+                forecast_data = {'DailyForecasts': []}
+                for i in range(min(3, len(daily['time']))):
+                    forecast_data['DailyForecasts'].append({
+                        'Temperature': {
+                            'Minimum': {'Value': daily['temperature_2m_min'][i]},
+                            'Maximum': {'Value': daily['temperature_2m_max'][i]}
+                        },
+                        'Day': {
+                            'IconPhrase': wmo_code_to_text(daily['weather_code'][i])
+                        }
+                    })
+
             location_name = request.args.get('location', 'your area')
-            
+
             # Generate AI insights
             ai_insights = generate_ai_weather_insights(current_data, forecast_data, location_name)
             weather_story = generate_ai_weather_story(current_data, location_name)
-            
+
             return jsonify({
                 'success': True,
                 'ai_insights': ai_insights,
@@ -792,7 +986,7 @@ def get_ai_weather_insights(location_key):
             })
         else:
             return jsonify({'success': False, 'error': 'Weather data not available'})
-            
+
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
@@ -800,6 +994,9 @@ def get_ai_weather_insights(location_key):
 def get_smart_recommendations():
     """Get AI-powered smart recommendations based on user preferences"""
     try:
+        if not gemini_available:
+            return jsonify({'success': False, 'error': 'AI features require GEMINI_API_KEY environment variable'})
+
         user_preferences = request.json or {}
         weather_condition = request.args.get('condition', 'clear')
         temperature = float(request.args.get('temperature', 20))
