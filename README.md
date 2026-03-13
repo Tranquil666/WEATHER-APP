@@ -207,7 +207,7 @@ The frontend is automatically deployed to **GitHub Pages** on every push to the 
 
 **Live URL:** [https://tranquil666.github.io/WEATHER-APP/](https://tranquil666.github.io/WEATHER-APP/)
 
-> **Note:** The GitHub Pages deployment serves the static frontend. For full API functionality (weather data lookups), the Flask backend (`backend.py`) must be hosted separately — see the [Installation](#installation) section for backend setup instructions.
+> **Note:** The app is fully standalone — it calls the Open-Meteo API directly from the browser, so no backend server is needed. Just open the live URL above to check weather for any city.
 
 ## License
 
